@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Leaf, Flame, Sparkles, Key, Check, ShieldCheck, RefreshCw, Volume2, VolumeX, Droplets, Share2, Cloud } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Leaf, Flame, Sparkles, Key, Check, ShieldCheck, RefreshCw, Volume2, VolumeX, Droplets, Share2, Cloud, User, LogIn } from 'lucide-react';
 import { ZeroWasteStats } from '@/lib/types';
 import { formatNumber } from '@/lib/utils';
 import { FuturisticLogo } from './FuturisticLogo';
+import { getActiveAuthSession, AuthSession } from '@/lib/supabaseClient';
 
 interface HeaderProps {
   stats: ZeroWasteStats;
@@ -21,6 +22,8 @@ interface HeaderProps {
   onOpenAuthSync?: () => void;
   isCloudActive?: boolean;
   activeTab?: string;
+  appMode: 'basic' | 'pro' | 'mega';
+  onChangeAppMode: (mode: 'basic' | 'pro' | 'mega') => void;
 }
 
 export function Header({
@@ -38,9 +41,24 @@ export function Header({
   onOpenAuthSync,
   isCloudActive,
   activeTab,
+  appMode,
+  onChangeAppMode,
 }: HeaderProps) {
   const [isEditingKey, setIsEditingKey] = useState(false);
   const [tempKey, setTempKey] = useState(customApiKey);
+  const [authSession, setAuthSession] = useState<AuthSession | null>(() => getActiveAuthSession());
+
+  useEffect(() => {
+    const handleStorage = () => {
+      setAuthSession(getActiveAuthSession());
+    };
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('sefsifir_auth_change', handleStorage);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('sefsifir_auth_change', handleStorage);
+    };
+  }, []);
 
   const handleKeySubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,8 +86,56 @@ export function Header({
           </div>
         </div>
 
+        {/* Center: Mode Switcher (🟢 Basic | 🟡 Pro | 🟣 Mega) */}
+        <div className="flex items-center justify-center p-1 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-inner">
+          <button
+            type="button"
+            onClick={() => onChangeAppMode('basic')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+              appMode === 'basic'
+                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 scale-[1.03]'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+            title="🟢 Basic Mod: Ultra sade tek ekran, dolap stoğu ve 3 pratik öğün (Kahvaltı, Ana Yemek, Aperatif)"
+          >
+            <span>🟢</span>
+            <span>Basic</span>
+            <span className="text-[10px] opacity-80 hidden sm:inline">(Sade)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onChangeAppMode('pro')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+              appMode === 'pro'
+                ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 scale-[1.03]'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+            title="🟡 Pro Mod: Tazelik Radarı, 1-Eksik Malzeme Analizi, Bütçe & Pazarım Listesi"
+          >
+            <span>🟡</span>
+            <span>Pro</span>
+            <span className="text-[10px] opacity-80 hidden sm:inline">(Radar)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onChangeAppMode('mega')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+              appMode === 'mega'
+                ? 'bg-purple-500 text-slate-950 shadow-md shadow-purple-500/20 scale-[1.03]'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+            title="🟣 Mega Mod: Topluluk Paylaşımları, Şef Sahnesi, Canlı Yayınlar ve Yönetici Kontrolü"
+          >
+            <span>🟣</span>
+            <span>Mega</span>
+            <span className="text-[10px] opacity-80 hidden sm:inline">(Topluluk)</span>
+          </button>
+        </div>
+
         {/* Center: Zero Waste Impact Metrics */}
-        <div className="flex items-center flex-wrap gap-2 lg:gap-3 justify-center text-xs">
+        <div className="hidden lg:flex items-center flex-wrap gap-2 justify-center text-xs">
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-slate-300 shadow-sm">
             <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
             <span className="font-semibold text-emerald-400">{stats.ingredientsSaved}</span>
@@ -163,21 +229,56 @@ export function Header({
             )}
           </div>
 
-          {/* Cloud Sync & Login Button */}
+          {/* Supabase Auth & Multi-Login Gateway Button */}
+          {onOpenAuthSync && (
+            authSession ? (
+              <button
+                type="button"
+                onClick={onOpenAuthSync}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-950/90 via-slate-900 to-emerald-950/80 hover:border-emerald-400 border border-emerald-500/50 text-emerald-300 text-xs font-bold transition-all hover:scale-[1.02] active:scale-[0.98] shadow-md shadow-emerald-950/40"
+                title="Kürşad Profili & Bulut Veri Yönetimi"
+              >
+                <div className="w-5 h-5 rounded-lg bg-emerald-500/30 border border-emerald-400 flex items-center justify-center overflow-hidden text-[11px]">
+                  {authSession.avatarUrl ? (
+                    <img src={authSession.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <span>👨‍🍳</span>
+                  )}
+                </div>
+                <span className="font-extrabold text-slate-100 hidden sm:inline">{authSession.fullName.split(' ')[0]}</span>
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[9px] font-black hidden md:inline">
+                  Kürşad Profili 👨‍🍳
+                </span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenAuthSync}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs transition-all hover:scale-105 active:scale-95 shadow-md shadow-emerald-500/20"
+                title="Google, Sihirli Bağlantı veya SMS ile Giriş Yap"
+              >
+                <LogIn className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Giriş Yap / Kaydol 👤</span>
+              </button>
+            )
+          )}
+
+          {/* Cloud Sync Pulse Indicator */}
           {onOpenAuthSync && (
             <button
               type="button"
               onClick={onOpenAuthSync}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-sm ${
+              className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all ${
                 isCloudActive
-                  ? 'bg-emerald-950/80 hover:bg-emerald-900 border-emerald-500/50 text-emerald-300'
-                  : 'bg-slate-900/90 hover:bg-slate-800 border-slate-800 text-slate-300 hover:border-slate-700'
+                  ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+                  : 'bg-slate-900/90 border-slate-800 text-slate-400'
               }`}
-              title="Çoklu Cihaz (MacBook & iPhone) Bulut Senkronizasyonu & Hesap"
+              title="Supabase Canlı Senkronizasyon"
             >
-              <Cloud className={`w-3.5 h-3.5 ${isCloudActive ? 'text-emerald-400' : 'text-slate-400'}`} />
-              <span className="hidden sm:inline">Bulut Sync</span>
-              <span className={`w-1.5 h-1.5 rounded-full ${isCloudActive ? 'bg-emerald-400 animate-pulse' : 'bg-teal-400'}`} />
+              <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-[11px]">Sync</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             </button>
           )}
 

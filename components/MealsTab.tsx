@@ -21,6 +21,7 @@ import {
   Maximize2,
   Timer,
   Play,
+  Square,
   RotateCcw,
   ShieldCheck,
   Moon,
@@ -31,12 +32,15 @@ import {
   Leaf,
   Heart,
   Star,
+  Volume2,
 } from 'lucide-react';
 import { Recipe, Ingredient, MealCategory, MetabolicGoal } from '@/lib/types';
-import { triggerConfetti } from '@/lib/confetti';
+import confetti from 'canvas-confetti';
 import { playKitchenSound } from '@/lib/sound';
 import { getRecipeCulinaryVisual } from '@/lib/recipeVisuals';
 import { RecipeDetailModal } from './RecipeDetailModal';
+import { CookedChecklistModal } from './CookedChecklistModal';
+import { ttsEngine, TTSState } from '@/lib/tts';
 
 interface MealsTabProps {
   recipes: Recipe[];
@@ -153,6 +157,43 @@ export function MealsTab({
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [expandedEquipment, setExpandedEquipment] = useState<Record<string, boolean>>({});
   const [detailedModalRecipe, setDetailedModalRecipe] = useState<Recipe | null>(null);
+  const [cookedChecklistRecipe, setCookedChecklistRecipe] = useState<Recipe | null>(null);
+
+  // TTS State
+  const [ttsState, setTtsState] = useState<TTSState>({
+    isPlaying: false,
+    isPaused: false,
+    currentStepIndex: -1,
+    totalSteps: 0,
+    currentText: '',
+  });
+  const [activeVoiceRecipeId, setActiveVoiceRecipeId] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const unsub = ttsEngine.subscribe((st) => {
+      setTtsState(st);
+      if (!st.isPlaying) {
+        setActiveVoiceRecipeId(null);
+      }
+    });
+    return () => {
+      unsub();
+      ttsEngine.stop();
+    };
+  }, []);
+
+  const handleToggleTTS = (recipe: Recipe) => {
+    if (activeVoiceRecipeId === recipe.id && ttsState.isPlaying) {
+      ttsEngine.stop();
+      setActiveVoiceRecipeId(null);
+      playKitchenSound('click', soundEnabled);
+    } else {
+      setActiveVoiceRecipeId(recipe.id);
+      playKitchenSound('pop', soundEnabled);
+      const ingredientsText = recipe.ingredients.map((i) => `${i.amount} ${i.unit} ${i.name}`).join(', ');
+      ttsEngine.speakRecipe(recipe.title, recipe.steps, ingredientsText);
+    }
+  };
 
   // Leftover mode custom selections
   const [selectedLeftovers, setSelectedLeftovers] = useState<string[]>([]);
@@ -187,12 +228,14 @@ export function MealsTab({
 
   // Cook Recipe and Deduct
   const handleCook = (recipe: Recipe) => {
-    triggerConfetti({
-      particleCount: 80,
-      spread: 70,
-      origin: { y: 0.6 },
-      colors: ['#10b981', '#34d399', '#059669', '#f59e0b', '#3b82f6'],
-    });
+    try {
+      confetti({
+        particleCount: 80,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ['#10b981', '#34d399', '#059669', '#f59e0b', '#3b82f6'],
+      });
+    } catch { /* empty */ }
 
     playKitchenSound('cook_success', soundEnabled);
     onCookRecipe(recipe);
@@ -794,16 +837,36 @@ export function MealsTab({
                   {/* Primary Action Buttons Bar */}
                   <div className="p-4 bg-slate-950/80 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2">
                     
-                    {/* Left: Quick Cooking Timer Button with Sound */}
-                    <button
-                      type="button"
-                      onClick={() => onOpenTimer(recipe.cookTimeMinutes, recipe.title)}
-                      className="px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 hover:text-amber-200 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95"
-                      title="Pişirme Sayacını ve Alarmı Başlat"
-                    >
-                      <Timer className="w-3.5 h-3.5 text-amber-400" />
-                      <span>⏱️ {recipe.cookTimeMinutes} dk Alarm</span>
-                    </button>
+                    {/* Left: TTS Voice Reader & Quick Cooking Timer */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleTTS(recipe)}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 ${
+                          activeVoiceRecipeId === recipe.id && ttsState.isPlaying
+                            ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 animate-pulse'
+                            : 'bg-slate-900 hover:bg-slate-800 border border-slate-800 text-amber-300'
+                        }`}
+                        title={activeVoiceRecipeId === recipe.id && ttsState.isPlaying ? 'Sesli okumayı durdur' : 'Tarifi sesli dinle'}
+                      >
+                        {activeVoiceRecipeId === recipe.id && ttsState.isPlaying ? (
+                          <Square className="w-3.5 h-3.5 fill-slate-950" />
+                        ) : (
+                          <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+                        )}
+                        <span>{activeVoiceRecipeId === recipe.id && ttsState.isPlaying ? 'Durdur' : 'Sesli Dinle 🔊'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onOpenTimer(recipe.cookTimeMinutes, recipe.title)}
+                        className="px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 hover:text-amber-200 text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95"
+                        title="Pişirme Sayacını ve Alarmı Başlat"
+                      >
+                        <Timer className="w-3.5 h-3.5 text-amber-400" />
+                        <span>⏱️ {recipe.cookTimeMinutes} dk Alarm</span>
+                      </button>
+                    </div>
 
                     {/* Right Actions: Detail & Cook */}
                     <div className="flex items-center gap-2">
@@ -821,7 +884,10 @@ export function MealsTab({
 
                       <button
                         type="button"
-                        onClick={() => handleCook(recipe)}
+                        onClick={() => {
+                          playKitchenSound('pop', soundEnabled);
+                          setCookedChecklistRecipe(recipe);
+                        }}
                         disabled={isCooked}
                         className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-lg transition-all active:scale-95 ${
                           isCooked
@@ -830,7 +896,7 @@ export function MealsTab({
                         }`}
                       >
                         <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
-                        <span>{isCooked ? 'Pişirildi ✓' : 'Pişirdim (Stoktan Düş)'}</span>
+                        <span>{isCooked ? 'Pişirildi ✓' : 'Pişirdim (Stok Onayı)'}</span>
                       </button>
                     </div>
                   </div>
@@ -847,7 +913,10 @@ export function MealsTab({
           recipe={detailedModalRecipe}
           isOpen={!!detailedModalRecipe}
           onClose={() => setDetailedModalRecipe(null)}
-          onCookRecipe={handleCook}
+          onCookRecipe={(rec) => {
+            setDetailedModalRecipe(null);
+            setCookedChecklistRecipe(rec);
+          }}
           onOpenTimer={onOpenTimer}
           onShareToCommunity={onShareToCommunity}
           onToggleFavorite={(recipeId) => {
@@ -857,6 +926,21 @@ export function MealsTab({
             }
           }}
           ingredients={ingredients}
+          soundEnabled={soundEnabled}
+        />
+      )}
+
+      {/* Interactive Cook Checklist Modal */}
+      {cookedChecklistRecipe && (
+        <CookedChecklistModal
+          isOpen={!!cookedChecklistRecipe}
+          onClose={() => setCookedChecklistRecipe(null)}
+          recipe={cookedChecklistRecipe}
+          pantryIngredients={ingredients}
+          onConfirmCook={(rec, selected) => {
+            onCookRecipe(rec);
+            setCookedChecklistRecipe(null);
+          }}
           soundEnabled={soundEnabled}
         />
       )}

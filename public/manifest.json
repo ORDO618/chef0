@@ -1,0 +1,19 @@
+{
+  "name": "ŞefSıfır - ChefZero Akıllı Mutfak",
+  "short_name": "ŞefSıfır",
+  "description": "Dolabındaki Lezzet, Sıfır İsraf - Yapay Zeka Destekli Sıfır Atık Mutfak Asistanı",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#10b981",
+  "orientation": "portrait-primary",
+  "categories": ["food", "lifestyle", "utilities"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

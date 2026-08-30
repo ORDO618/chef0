@@ -23,6 +23,7 @@ import {
 import { usePersistentState } from '@/lib/usePersistentState';
 import { Header } from '@/components/Header';
 import { ApiKeyModal } from '@/components/ApiKeyModal';
+import { BasicKitchenView } from '@/components/BasicKitchenView';
 import { PantryTab } from '@/components/PantryTab';
 import { MealsTab } from '@/components/MealsTab';
 import { MarketTab } from '@/components/MarketTab';
@@ -94,6 +95,8 @@ type ActiveTab = 'pantry' | 'meals' | 'diary' | 'social' | 'chef' | 'market';
 export default function Home() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<ActiveTab>('pantry');
+  // App Mode State (🟢 basic | 🟡 pro | 🟣 mega)
+  const [appMode, setAppMode] = usePersistentState<'basic' | 'pro' | 'mega'>('kitchzero_app_mode', 'basic');
 
   // Persistent state synced with localStorage using useSyncExternalStore (SSR-safe & Hydration-safe)
   const [ingredients, setIngredients] = usePersistentState<Ingredient[]>('kitchzero_ingredients', INITIAL_INGREDIENTS);
@@ -474,6 +477,80 @@ export default function Home() {
     showToast(`Tebrikler! "${recipe.title}" pişirildi ve ekolojik etkiniz güncellendi.`, 'success');
   };
 
+  // "Pişirdim" with custom confirmed checklist
+  const handleCookRecipeWithChecklist = (
+    recipe: Recipe,
+    selectedIngredients: { name: string; amount: number; unit: string }[]
+  ) => {
+    let depletedNames: string[] = [];
+    let savedCount = 0;
+
+    setIngredients((prev) => {
+      let updated = [...prev];
+
+      selectedIngredients.forEach((used) => {
+        const matchIndex = updated.findIndex(
+          (ing) =>
+            ing.name.toLowerCase() === used.name.toLowerCase() ||
+            ing.name.toLowerCase().includes(used.name.toLowerCase()) ||
+            used.name.toLowerCase().includes(ing.name.toLowerCase())
+        );
+
+        if (matchIndex !== -1) {
+          const current = updated[matchIndex];
+          const remaining = Math.max(0, Number((current.amount - used.amount).toFixed(1)));
+          savedCount++;
+
+          if (remaining <= 0) {
+            depletedNames.push(current.name);
+            updated.splice(matchIndex, 1);
+          } else {
+            updated[matchIndex] = { ...current, amount: remaining };
+          }
+        }
+      });
+
+      return updated;
+    });
+
+    // Mark recipe as cooked
+    setRecipes((prev) =>
+      prev.map((r) => (r.id === recipe.id ? { ...r, isCooked: true } : r))
+    );
+
+    // If any items depleted, append to shopping list
+    if (depletedNames.length > 0) {
+      depletedNames.forEach((name) => {
+        handleAddShoppingItem(name, 'sebze_meyve', 1, 'adet', 30, 'auto_deducted');
+      });
+      showToast(`Tükenen [${depletedNames.join(', ')}] Pazarım listesine eklendi!`, 'info');
+    }
+
+    // Update stats
+    setStats((prev) => {
+      const nextMeals = prev.mealsCooked + 1;
+      const nextSaved = prev.ingredientsSaved + (savedCount || selectedIngredients.length || 1);
+      const nextMoney = prev.approxMoneySavedTl + 125;
+      const nextCo2 = Number((prev.co2SavedKg + 1.4).toFixed(1));
+      const nextWater = (prev.waterSavedLiters || 4850) + 650;
+      const nextRescued = Number(((prev.rescuedKg || 5.8) + 0.85).toFixed(1));
+      const nextStreak = prev.streakDays + 1;
+
+      return {
+        mealsCooked: nextMeals,
+        ingredientsSaved: nextSaved,
+        approxMoneySavedTl: nextMoney,
+        co2SavedKg: nextCo2,
+        waterSavedLiters: nextWater,
+        rescuedKg: nextRescued,
+        streakDays: nextStreak,
+        lastActiveDate: new Date().toISOString(),
+      };
+    });
+
+    showToast(`🎉 "${recipe.title}" pişirildi ve seçtiğiniz ${selectedIngredients.length} malzeme dolaptan düşüldü.`, 'success');
+  };
+
   // 2.2 Toggle Favorite Recipe
   const handleToggleFavoriteRecipe = (recipeId: string) => {
     setRecipes((prev) =>
@@ -790,163 +867,201 @@ export default function Home() {
         }}
         isCloudActive={isSupabaseConfigured()}
         activeTab={activeTab}
+        appMode={appMode}
+        onChangeAppMode={(mode) => {
+          setAppMode(mode);
+          playKitchenSound('pop', soundEnabled);
+          showToast(
+            mode === 'basic'
+              ? '🟢 Basic Mod: Sade mobil mutfak görünümüne geçildi.'
+              : mode === 'pro'
+              ? '🟡 Pro Mod: Tazelik Radarı, Bütçe ve Market sepeti aktif.'
+              : '🟣 Mega Mod: Topluluk, Şef Sahnesi ve Canlı Yayınlar aktif!',
+            'info'
+          );
+        }}
       />
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 space-y-6">
         
-        {/* Brand Slogan & Hero Accent Bar */}
-        <BrandHeroAccent
-          activeTab={activeTab}
-          onQuickAddClick={() => {
-            setActiveTab('pantry');
-            playKitchenSound('pop', soundEnabled);
-          }}
-        />
-
-        {/* 6 Tab Navigation Bar with warm accents */}
-        <div className="flex items-center justify-center sm:justify-start overflow-x-auto pb-1">
-          <nav className="inline-flex p-1.5 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl gap-1 shrink-0">
-            
-            {/* Tab 1: Mutfağım */}
-            <button
-              onClick={() => {
+        {/* Conditional View: 🟢 Basic Mode vs 🟡 Pro / 🟣 Mega Tabs */}
+        {appMode === 'basic' ? (
+          <BasicKitchenView
+            ingredients={ingredients}
+            recipes={recipes}
+            onAddIngredient={handleAddIngredient}
+            onAddMultipleIngredients={handleAddMultipleIngredients}
+            onRemoveIngredient={handleRemoveIngredient}
+            onUpdateAmount={handleUpdateAmount}
+            onLoadPreset={handleLoadPreset}
+            onGenerateRecipes={(cat, srv, pr) => handleGenerateRecipes(cat, srv, pr, 'tum')}
+            onCookRecipeWithChecklist={handleCookRecipeWithChecklist}
+            onToggleFavoriteRecipe={handleToggleFavoriteRecipe}
+            onOpenTimer={handleOpenTimer}
+            isGenerating={isGeneratingRecipes}
+            customApiKey={customApiKey}
+            soundEnabled={soundEnabled}
+            onToast={showToast}
+          />
+        ) : (
+          <>
+            {/* Brand Slogan & Hero Accent Bar */}
+            <BrandHeroAccent
+              activeTab={activeTab}
+              onQuickAddClick={() => {
                 setActiveTab('pantry');
-                playKitchenSound('click', soundEnabled);
+                playKitchenSound('pop', soundEnabled);
               }}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                activeTab === 'pantry'
-                  ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-            >
-              <UtensilsCrossed className="w-4 h-4" />
-              <span>Mutfağım</span>
-              <span className={`px-1.5 py-0.2 rounded-md text-[11px] ${
-                activeTab === 'pantry' ? 'bg-slate-950/20 text-slate-950 font-black' : 'bg-slate-800 text-emerald-400'
-              }`}>
-                {ingredients.length}
-              </span>
-            </button>
+            />
 
-            {/* Tab 2: Öğünüm */}
-            <button
-              onClick={() => {
-                setActiveTab('meals');
-                playKitchenSound('click', soundEnabled);
-              }}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                activeTab === 'meals'
-                  ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-            >
-              <ChefHat className="w-4 h-4" />
-              <span>Öğünüm</span>
-              <span className={`px-1.5 py-0.2 rounded-md text-[11px] ${
-                activeTab === 'meals' ? 'bg-slate-950/20 text-slate-950 font-black' : 'bg-slate-800 text-emerald-400'
-              }`}>
-                {recipes.length}
-              </span>
-            </button>
+            {/* Navigation Bar with mode-aware tabs */}
+            <div className="flex items-center justify-center sm:justify-start overflow-x-auto pb-1">
+              <nav className="inline-flex p-1.5 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl gap-1 shrink-0">
+                
+                {/* Tab 1: Mutfağım */}
+                <button
+                  onClick={() => {
+                    setActiveTab('pantry');
+                    playKitchenSound('click', soundEnabled);
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                    activeTab === 'pantry'
+                      ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <UtensilsCrossed className="w-4 h-4" />
+                  <span>Mutfağım</span>
+                  <span className={`px-1.5 py-0.2 rounded-md text-[11px] ${
+                    activeTab === 'pantry' ? 'bg-slate-950/20 text-slate-950 font-black' : 'bg-slate-800 text-emerald-400'
+                  }`}>
+                    {ingredients.length}
+                  </span>
+                </button>
 
-            {/* Tab 3: Kürşad Günlüğü 📝 */}
-            <button
-              onClick={() => {
-                setActiveTab('diary');
-                playKitchenSound('click', soundEnabled);
-              }}
-              className={`flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                activeTab === 'diary'
-                  ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-            >
-              <BookOpen className="w-4 h-4" />
-              <span>Kürşad Günlüğü</span>
-              <span className={`px-1.5 py-0.2 rounded-md text-[11px] ${
-                activeTab === 'diary' ? 'bg-slate-950/20 text-slate-950 font-black' : 'bg-slate-800 text-emerald-400'
-              }`}>
-                {diaryEntries.length}
-              </span>
-            </button>
+                {/* Tab 2: Öğünüm */}
+                <button
+                  onClick={() => {
+                    setActiveTab('meals');
+                    playKitchenSound('click', soundEnabled);
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                    activeTab === 'meals'
+                      ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <ChefHat className="w-4 h-4" />
+                  <span>Öğünüm</span>
+                  <span className={`px-1.5 py-0.2 rounded-md text-[11px] ${
+                    activeTab === 'meals' ? 'bg-slate-950/20 text-slate-950 font-black' : 'bg-slate-800 text-emerald-400'
+                  }`}>
+                    {recipes.length}
+                  </span>
+                </button>
 
-            {/* Tab 4: Topluluk & Trendler (Feature Gated: Phase 2 - 100 Users) */}
-            <button
-              onClick={() => {
-                setActiveTab('social');
-                playKitchenSound(isSocialUnlocked ? 'click' : 'pop', soundEnabled);
-              }}
-              className={`flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                activeTab === 'social'
-                  ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-            >
-              <Users className="w-4 h-4" />
-              <span>Topluluk & Trendler</span>
-              {isSocialUnlocked ? (
-                <span className={`px-1.5 py-0.2 rounded-md text-[11px] ${
-                  activeTab === 'social' ? 'bg-slate-950/20 text-slate-950 font-black' : 'bg-slate-800 text-amber-400'
-                }`}>
-                  {communityPosts.length}
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-950/90 border border-amber-500/40 text-amber-300">
-                  <Lock className="w-2.5 h-2.5" />
-                  <span>{effectiveSimulatedUsers}/100</span>
-                </span>
-              )}
-            </button>
+                {/* Tab 3: Kürşad Günlüğü 📝 */}
+                <button
+                  onClick={() => {
+                    setActiveTab('diary');
+                    playKitchenSound('click', soundEnabled);
+                  }}
+                  className={`flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                    activeTab === 'diary'
+                      ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <BookOpen className="w-4 h-4" />
+                  <span>Kürşad Günlüğü</span>
+                  <span className={`px-1.5 py-0.2 rounded-md text-[11px] ${
+                    activeTab === 'diary' ? 'bg-slate-950/20 text-slate-950 font-black' : 'bg-slate-800 text-emerald-400'
+                  }`}>
+                    {diaryEntries.length}
+                  </span>
+                </button>
 
-            {/* Tab 5: Şef Sahnesi & Canlı (Feature Gated: Phase 3 - 500 Users) */}
-            <button
-              onClick={() => {
-                setActiveTab('chef');
-                playKitchenSound(isChefUnlocked ? 'click' : 'pop', soundEnabled);
-              }}
-              className={`flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                activeTab === 'chef'
-                  ? 'bg-rose-500 text-slate-950 shadow-lg shadow-rose-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-            >
-              <Radio className="w-4 h-4" />
-              <span>Şef Sahnesi</span>
-              {isChefUnlocked ? (
-                <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" />
-              ) : (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-950/90 border border-rose-500/40 text-rose-300">
-                  <Lock className="w-2.5 h-2.5" />
-                  <span>{effectiveSimulatedUsers}/500</span>
-                </span>
-              )}
-            </button>
+                {/* Mega Only Tabs: Topluluk & Trendler */}
+                {appMode === 'mega' && (
+                  <button
+                    onClick={() => {
+                      setActiveTab('social');
+                      playKitchenSound(isSocialUnlocked ? 'click' : 'pop', soundEnabled);
+                    }}
+                    className={`flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                      activeTab === 'social'
+                        ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <Users className="w-4 h-4" />
+                    <span>Topluluk & Trendler</span>
+                    {isSocialUnlocked ? (
+                      <span className={`px-1.5 py-0.2 rounded-md text-[11px] ${
+                        activeTab === 'social' ? 'bg-slate-950/20 text-slate-950 font-black' : 'bg-slate-800 text-amber-400'
+                      }`}>
+                        {communityPosts.length}
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-950/90 border border-amber-500/40 text-amber-300">
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>{effectiveSimulatedUsers}/100</span>
+                      </span>
+                    )}
+                  </button>
+                )}
 
-            {/* Tab 6: Pazarım */}
-            <button
-              onClick={() => {
-                setActiveTab('market');
-                playKitchenSound('click', soundEnabled);
-              }}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                activeTab === 'market'
-                  ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-            >
-              <ShoppingBag className="w-4 h-4" />
-              <span>Pazarım</span>
-              {shoppingList.length > 0 && (
-                <span className={`px-1.5 py-0.2 rounded-md text-[11px] ${
-                  activeTab === 'market' ? 'bg-slate-950/20 text-slate-950 font-black' : 'bg-slate-800 text-amber-400'
-                }`}>
-                  {shoppingList.length}
-                </span>
-              )}
-            </button>
-          </nav>
-        </div>
+                {/* Mega Only Tabs: Şef Sahnesi */}
+                {appMode === 'mega' && (
+                  <button
+                    onClick={() => {
+                      setActiveTab('chef');
+                      playKitchenSound(isChefUnlocked ? 'click' : 'pop', soundEnabled);
+                    }}
+                    className={`flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                      activeTab === 'chef'
+                        ? 'bg-rose-500 text-slate-950 shadow-lg shadow-rose-500/20'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <Radio className="w-4 h-4" />
+                    <span>Şef Sahnesi</span>
+                    {isChefUnlocked ? (
+                      <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" />
+                    ) : (
+                      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-950/90 border border-rose-500/40 text-rose-300">
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>{effectiveSimulatedUsers}/500</span>
+                      </span>
+                    )}
+                  </button>
+                )}
+
+                {/* Tab: Pazarım */}
+                <button
+                  onClick={() => {
+                    setActiveTab('market');
+                    playKitchenSound('click', soundEnabled);
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                    activeTab === 'market'
+                      ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <ShoppingBag className="w-4 h-4" />
+                  <span>Pazarım</span>
+                  {shoppingList.length > 0 && (
+                    <span className={`px-1.5 py-0.2 rounded-md text-[11px] ${
+                      activeTab === 'market' ? 'bg-slate-950/20 text-slate-950 font-black' : 'bg-slate-800 text-amber-400'
+                    }`}>
+                      {shoppingList.length}
+                    </span>
+                  )}
+                </button>
+              </nav>
+            </div>
 
         {/* Tab Views */}
         {activeTab === 'pantry' && (
@@ -1069,6 +1184,8 @@ export default function Home() {
             isRefreshingMissing={isRefreshingMissing}
             soundEnabled={soundEnabled}
           />
+        )}
+          </>
         )}
       </main>
 
