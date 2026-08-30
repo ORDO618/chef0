@@ -1,0 +1,6 @@
+{
+  "name": "ŞefSıfır / ChefZero",
+  "description": "Dolabındaki Lezzet, Sıfır İsraf - Multimodal sıfır atık yapay zeka mutfak asistanı.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
